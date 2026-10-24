@@ -24,7 +24,7 @@ class ExplainerEngine:
         self.config["TEXT_ENGINE"] = text_engine
         
         self.google_client = GoogleClient(self.config)
-        self.wavespeed_client = WaveSpeedClient(self.config.get("WAVESPEED_API_KEY")) if self.audio_engine == "WaveSpeed AI" else None
+        self.wavespeed_client = WaveSpeedClient(self.config.get("WAVESPEED_API_KEY") or self.config.get("WAVESPEED_AI_KEY")) if self.audio_engine == "WaveSpeed AI" else None
         
         # Use a deterministic workspace directory based on the URL so we can resume automatically
         import hashlib
@@ -55,12 +55,24 @@ class ExplainerEngine:
             ]
             subprocess.run(cmd, check=True)
         else:
-            # Assume it's a local file path
-            if not os.path.exists(self.url):
+            # Validate local file path is strictly inside permitted workspace directories
+            clean_local = os.path.abspath(self.url.strip())
+            allowed_roots = [
+                os.path.abspath("workspace"),
+                os.path.abspath("outputs"),
+                os.path.abspath("assets"),
+                os.path.abspath("agent_workspace")
+            ]
+            is_safe = any(
+                clean_local.startswith(r) and (len(clean_local) == len(r) or clean_local[len(r)] in (os.sep, "/"))
+                for r in allowed_roots
+            )
+            if not is_safe:
+                raise PermissionError("Access denied: Local video file must reside within workspace or assets directory.")
+            if not os.path.exists(clean_local) or not os.path.isfile(clean_local):
                 raise FileNotFoundError(f"Local file not found: {self.url}")
-            # Just symlink or copy
             import shutil
-            shutil.copy2(self.url, self.video_path)
+            shutil.copy2(clean_local, self.video_path)
             
     def extract_audio(self):
         if os.path.exists(self.audio_path):
@@ -82,9 +94,9 @@ class ExplainerEngine:
                 return f.read()
                 
         self.log("Transcribing audio using Whisper (this may take a while)...", 0.20)
-        import whisper
-        # Use 'tiny' model instead of 'base' to massively speed up local CPU transcription
-        model = whisper.load_model("tiny")
+        from pipeline import get_whisper_model
+        # Use cached 'tiny' model to speed up local CPU transcription
+        model = get_whisper_model("tiny")
         result = model.transcribe(self.audio_path)
         
         transcript_text = ""

@@ -1,5 +1,7 @@
 "use client";
 
+import { API_BASE_URL, WS_BASE_URL } from "@/lib/api";
+
 import { useState, useEffect, useRef } from "react";
 import { MonitorPlay, Scissors, Loader2, Play, Download, Settings2, ScissorsSquare, Share2, CheckCircle2, Circle, Edit2, Upload } from "lucide-react";
 import TimelineEditor from "@/components/TimelineEditor";
@@ -44,7 +46,7 @@ export default function ClipperPage() {
   useEffect(() => {
     if (!jobId) return;
 
-    const ws = new WebSocket(`ws://localhost:8008/api/generate/ws/${jobId}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/api/generate/ws/${jobId}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -122,7 +124,7 @@ export default function ClipperPage() {
     try {
       let res;
       if (inputType === "youtube") {
-        res = await fetch("http://localhost:8008/api/clipper/analyze", {
+        res = await fetch(`${API_BASE_URL}/api/clipper/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
@@ -135,7 +137,7 @@ export default function ClipperPage() {
         formData.append("file", file!);
         formData.append("num_clips", numClips.toString());
 
-        res = await fetch("http://localhost:8008/api/clipper/analyze_local", {
+        res = await fetch(`${API_BASE_URL}/api/clipper/analyze_local`, {
           method: "POST",
           body: formData
         });
@@ -163,7 +165,7 @@ export default function ClipperPage() {
     const selected = analyzedClips.filter((_, i) => selectedClipIndices.has(i));
     
     try {
-      await fetch("http://localhost:8008/api/clipper/render", {
+      await fetch(`${API_BASE_URL}/api/clipper/render`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -198,7 +200,7 @@ export default function ClipperPage() {
     
     setPubStatus("publishing");
     try {
-      const res = await fetch("http://localhost:8008/api/publish/youtube", {
+      const res = await fetch(`${API_BASE_URL}/api/publish/youtube`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -436,7 +438,7 @@ export default function ClipperPage() {
                       <div key={i} className="flex flex-col gap-3 group">
                         <div className="aspect-[9/16] bg-black rounded-xl border border-white/10 overflow-hidden relative shadow-lg">
                           <video 
-                            src={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(clip.path.replace(/\\/g, '/'))}`} 
+                            src={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(clip.path.replace(/\\/g, '/'))}`} 
                             controls 
                             className="w-full h-full object-cover"
                           />
@@ -446,7 +448,7 @@ export default function ClipperPage() {
                             {clip.title}
                           </p>
                           <div className="flex items-center gap-2 mt-3">
-                            <a href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(clip.path.replace(/\\/g, '/'))}`} download className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition-all">
+                            <a href={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(clip.path.replace(/\\/g, '/'))}`} download className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition-all">
                               <Download className="h-4 w-4" /> Download
                             </a>
                             <button 

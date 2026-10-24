@@ -176,6 +176,11 @@ def update_job(
         # Broadcast minimal state update
         manager.broadcast(job_id, {
             "type": "update",
+            "status": job["status"],
+            "progress": job["progress"],
+            "step": job["step"],
+            "result": job["result"],
+            "error": job["error"],
             "data": {
                 "status": job["status"],
                 "progress": job["progress"],
@@ -206,9 +211,16 @@ def add_log(job_id: str, msg: str, level: str = "INFO"):
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
     log_line = f"[{timestamp}] {msg}"
     
+    current_prog = 0.0
     if job_id in _JOBS:
         _JOBS[job_id].setdefault("logs", []).append(log_line)
-    manager.broadcast(job_id, {"type": "log", "data": log_line})
+        current_prog = _JOBS[job_id].get("progress", 0.0)
+    manager.broadcast(job_id, {
+        "type": "log",
+        "data": log_line,
+        "message": msg,
+        "progress": current_prog
+    })
     
     # Save log to database
     db = SessionLocal()

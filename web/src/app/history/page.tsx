@@ -1,5 +1,7 @@
 "use client";
 
+import { API_BASE_URL, WS_BASE_URL } from "@/lib/api";
+
 import { useEffect, useState } from "react";
 import { Film, FileText, Download, Play, Trash2, Calendar, Loader2, RefreshCw } from "lucide-react";
 
@@ -24,7 +26,7 @@ export default function HistoryPage() {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8008/api/generate/history");
+      const res = await fetch(`${API_BASE_URL}/api/generate/history`);
       if (res.ok) {
         const data = await res.json();
         setProjects(data);
@@ -44,7 +46,7 @@ export default function HistoryPage() {
     
     setDeletingId(id);
     try {
-      const res = await fetch(`http://localhost:8008/api/generate/history/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/generate/history/${id}`, {
         method: "DELETE"
       });
       if (res.ok) {
@@ -126,7 +128,7 @@ export default function HistoryPage() {
                   <div key={idx} className="flex flex-col gap-3 group">
                     <div className={`bg-black rounded-xl border border-white/10 overflow-hidden relative shadow-lg ${project.type === "podcast" ? "aspect-video" : "aspect-[9/16]"}`}>
                       <video 
-                        src={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(vid.path.replace(/\\/g, '/'))}`} 
+                        src={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(vid.path.replace(/\\/g, '/'))}`} 
                         controls 
                         className="w-full h-full object-cover"
                       />
@@ -136,7 +138,7 @@ export default function HistoryPage() {
                         {vid.title}
                       </p>
                       <a 
-                        href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(vid.path.replace(/\\/g, '/'))}`} 
+                        href={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(vid.path.replace(/\\/g, '/'))}`} 
                         download 
                         className="mt-3 py-2 w-full bg-white/5 hover:bg-white/10 text-white rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition-all border border-white/10"
                       >
@@ -152,7 +154,7 @@ export default function HistoryPage() {
                   {project.scripts.map((script, idx) => (
                     <a 
                       key={idx}
-                      href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(script.replace(/\\/g, '/'))}`} 
+                      href={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(script.replace(/\\/g, '/'))}`} 
                       download
                       className="py-2 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 rounded-lg flex items-center gap-2 text-sm font-medium transition-all"
                     >

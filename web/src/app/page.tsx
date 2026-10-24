@@ -1,17 +1,56 @@
 "use client";
 
-import { Video, Clock, TrendingUp, Sparkles, Plus, Play, Scissors, Film, ArrowRight, Activity, CalendarDays, MoreHorizontal, Palette, Bot } from "lucide-react";
+import { Video, Clock, TrendingUp, Sparkles, Plus, Play, Scissors, Film, ArrowRight, Activity, CalendarDays, Palette, Bot } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { API_BASE_URL, getMediaUrl } from "@/lib/api";
+
+interface RecentProject {
+  id: string;
+  title: string;
+  type: string;
+  created_at: number;
+  video_count: number;
+  video_path?: string | null;
+}
 
 export default function Dashboard() {
   const [greeting, setGreeting] = useState("Welcome back");
+  const [stats, setStats] = useState({
+    total_generated: 0,
+    total_projects: 0,
+    render_hours: 0,
+    active_jobs: 0,
+    completed_jobs: 0,
+    configured_providers: 0,
+  });
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
+  const [previewVideo, setPreviewVideo] = useState<string | null>(null);
 
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour < 12) setGreeting("Good morning");
     else if (hour < 18) setGreeting("Good afternoon");
     else setGreeting("Good evening");
+
+    fetch(`${API_BASE_URL}/api/generate/stats`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data) {
+          setStats({
+            total_generated: data.total_generated ?? 0,
+            total_projects: data.total_projects ?? 0,
+            render_hours: data.render_hours ?? 0,
+            active_jobs: data.active_jobs ?? 0,
+            completed_jobs: data.completed_jobs ?? 0,
+            configured_providers: data.configured_providers ?? 0,
+          });
+          if (Array.isArray(data.recent_projects)) {
+            setRecentProjects(data.recent_projects);
+          }
+        }
+      })
+      .catch(err => console.error("Failed to load dashboard telemetry:", err));
   }, []);
 
   return (
@@ -29,7 +68,9 @@ export default function Dashboard() {
             {greeting}, Creator.
           </h1>
           <p className="text-zinc-400 text-sm md:text-base max-w-lg">
-            Your high-performance AI video pipelines are standing by. You have generated <span className="text-white font-bold">14 videos</span> this week.
+            Your high-performance AI video pipelines are standing by. You have{" "}
+            <span className="text-white font-bold">{stats.total_generated} rendered videos</span> across{" "}
+            <span className="text-white font-bold">{stats.total_projects} workspace projects</span>.
           </p>
         </div>
         <div className="relative z-10">
@@ -75,10 +116,10 @@ export default function Dashboard() {
       {/* Telemetry Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {[
-          { label: "Total Generated", value: "128", icon: Video, trend: "+12%" },
-          { label: "Render Hours", value: "42.5", icon: Clock, trend: "+5%" },
-          { label: "Avg Engagement", value: "14.2%", icon: TrendingUp, trend: "+2.4%" },
-          { label: "API Credits", value: "840", icon: Sparkles, trend: "Stable" },
+          { label: "Total Generated", value: String(stats.total_generated), icon: Video, trend: `${stats.total_projects} Projects` },
+          { label: "Render Hours", value: String(stats.render_hours), icon: Clock, trend: `${stats.completed_jobs} Jobs Done` },
+          { label: "Active Queue", value: String(stats.active_jobs), icon: TrendingUp, trend: stats.active_jobs > 0 ? "Processing" : "Idle" },
+          { label: "API Providers", value: `${stats.configured_providers}/4`, icon: Sparkles, trend: stats.configured_providers > 0 ? "+Connected" : "Configure in Settings" },
         ].map((stat, i) => (
           <div key={i} className="glass-card p-5 relative overflow-hidden">
             <div className="flex justify-between items-start mb-4">
@@ -95,47 +136,63 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Preview Modal if user clicks a recent video */}
+      {previewVideo && (
+        <div className="glass-card p-6 border border-[var(--accent)]/30 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Quick Preview</h3>
+            <button onClick={() => setPreviewVideo(null)} className="text-xs text-zinc-400 hover:text-white">Close</button>
+          </div>
+          <video src={getMediaUrl(previewVideo)} controls autoPlay className="w-full max-h-[420px] rounded-xl bg-black" />
+        </div>
+      )}
+
       {/* Recent Generations */}
       <div className="glass-card p-6">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/5">
           <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
             <CalendarDays className="h-4 w-4 text-zinc-400" /> Recent Output
           </h2>
-          <button className="text-xs font-bold text-[var(--accent)] hover:text-white transition-colors">View All</button>
+          <Link href="/history" className="text-xs font-bold text-[var(--accent)] hover:text-white transition-colors">
+            View All
+          </Link>
         </div>
         
-        <div className="space-y-3">
-          {[
-            { title: "History of Artificial Intelligence", style: "Documentary", time: "2 hours ago", status: "Ready", duration: "05:24" },
-            { title: "Top 10 Tech Gadgets 2026", style: "Viral Video", time: "5 hours ago", status: "Ready", duration: "01:15" },
-            { title: "ASMR Keyboard Typing", style: "ASMR", time: "Yesterday", status: "Failed", duration: "--:--" },
-          ].map((item, i) => (
-            <div key={i} className="group flex items-center justify-between p-3 bg-black/20 rounded-xl border border-white/5 hover:border-white/20 transition-all hover:bg-black/40">
-              <div className="flex items-center gap-4">
-                <div className="relative h-14 w-24 rounded-lg bg-zinc-900 overflow-hidden border border-white/10 group-hover:border-[var(--accent)] transition-colors flex items-center justify-center">
-                  <Play className="h-5 w-5 text-white/50 group-hover:text-[var(--accent)] transition-colors" />
-                  <div className="absolute bottom-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-mono text-white">
-                    {item.duration}
+        {recentProjects.length === 0 ? (
+          <div className="p-8 text-center text-zinc-500 text-sm">
+            No generated projects yet. Launch <Link href="/studio" className="text-[var(--accent)] underline">Creator Studio</Link> or <Link href="/director" className="text-[var(--accent)] underline">Autonomous Director</Link> to produce your first video.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recentProjects.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => item.video_path && setPreviewVideo(item.video_path)}
+                className="group flex items-center justify-between p-3 bg-black/20 rounded-xl border border-white/5 hover:border-white/20 transition-all hover:bg-black/40 cursor-pointer"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="relative h-14 w-24 rounded-lg bg-zinc-900 overflow-hidden border border-white/10 group-hover:border-[var(--accent)] transition-colors flex items-center justify-center">
+                    <Play className="h-5 w-5 text-white/50 group-hover:text-[var(--accent)] transition-colors" />
+                    <div className="absolute bottom-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-mono text-white">
+                      {item.video_count} {item.video_count === 1 ? "clip" : "clips"}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white mb-0.5 group-hover:text-[var(--accent)] transition-colors">{item.title}</h3>
+                    <p className="text-[11px] text-zinc-500 font-medium uppercase">
+                      {item.type} • {new Date(item.created_at * 1000).toLocaleDateString()}
+                    </p>
                   </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white mb-0.5 group-hover:text-[var(--accent)] transition-colors">{item.title}</h3>
-                  <p className="text-[11px] text-zinc-500 font-medium">{item.style} • {item.time}</p>
+                <div className="flex items-center gap-4">
+                  <span className="text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-md border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                    Ready
+                  </span>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <span className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-md border ${
-                  item.status === 'Ready' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                }`}>
-                  {item.status}
-                </span>
-                <button className="p-2 hover:bg-white/10 rounded-lg text-zinc-500 hover:text-white transition-colors">
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
       
     </div>

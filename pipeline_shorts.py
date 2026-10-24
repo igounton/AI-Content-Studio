@@ -189,6 +189,39 @@ def render_scene_aware_clip(video_path: str, start_time: float, end_time: float,
         
     os.remove(segment_path)
 
+def extract_clip_transcript_segments(word_timestamps: list, clip_start: float, clip_end: float) -> list:
+    """Slices word timestamps for [clip_start, clip_end] into sentence/phrase segments for TimelineEditor."""
+    clip_words = [
+        w for w in word_timestamps
+        if float(w.get("end", 0)) > clip_start and float(w.get("start", 0)) < clip_end
+    ]
+    if not clip_words:
+        return []
+    segments = []
+    cur_words = []
+    seg_start = max(0.0, round(float(clip_words[0]["start"]) - clip_start, 2))
+    seg_idx = 1
+    for i, w in enumerate(clip_words):
+        word_text = str(w.get("word", "")).strip()
+        if not word_text:
+            continue
+        if not cur_words:
+            seg_start = max(0.0, round(float(w["start"]) - clip_start, 2))
+        cur_words.append(word_text)
+        seg_end = max(seg_start + 0.3, round(float(w["end"]) - clip_start, 2))
+        ends_sentence = word_text.endswith((".", "!", "?"))
+        if len(cur_words) >= 8 or ends_sentence or (seg_end - seg_start >= 4.5) or i == len(clip_words) - 1:
+            segments.append({
+                "id": f"seg_{seg_idx}",
+                "start": seg_start,
+                "end": seg_end,
+                "text": " ".join(cur_words),
+                "deleted": False
+            })
+            seg_idx += 1
+            cur_words = []
+    return segments
+
 def analyze_video(source: str, is_local: bool, job_id: str, update_job_callback, num_clips: int = 10):
     try:
         config = load_config()
@@ -307,6 +340,7 @@ Transcript window:
                     if boost > 6.0:
                         c["reason"] = f"{c.get('reason', '')} [Multimodal verified: Audio peak + Cut dynamics]"
                         
+                    c["transcript_segments"] = extract_clip_transcript_segments(word_timestamps, st, en)
                     unique_clips.append(c)
             except Exception:
                 continue
@@ -327,7 +361,8 @@ Transcript window:
                 "seo_title": "Must Watch Moment #shorts",
                 "seo_description": "Key highlight from the full episode.",
                 "seo_tags": "viral, shorts",
-                "broll": []
+                "broll": [],
+                "transcript_segments": extract_clip_transcript_segments(word_timestamps, 0.0, min(30.0, float(word_timestamps[-1]['end'])))
             }]
             
         update_job_callback(job_id, step="Awaiting Selection", progress=0.6, result=json.dumps({"type": "selection", "clips": clips_data, "video_path": video_path}))
@@ -365,6 +400,33 @@ def render_youtube_clips(job_id: str, video_path: str, selected_clips: list, upd
             
             # Use OpusClip-style AI Active Speaker Tracking
             render_scene_aware_clip(video_path, start, end, out_path)
+
+            # Apply transcript ripple cuts if user deleted segments in TimelineEditor
+            kept_segments = clip.get("kept_segments")
+            if isinstance(kept_segments, list) and len(kept_segments) > 0:
+                try:
+                    ripple_path = os.path.join(output_dir, f"ripple_{clip_name}")
+                    v_parts = []
+                    a_parts = []
+                    concat_pairs = ""
+                    for s_i, seg in enumerate(kept_segments):
+                        s_st = max(0.0, float(seg.get("start", 0.0)))
+                        s_en = max(s_st + 0.2, float(seg.get("end", s_st + 1.0)))
+                        v_parts.append(f"[0:v]trim=start={s_st}:end={s_en},setpts=PTS-STARTPTS[rv{s_i}]")
+                        a_parts.append(f"[0:a]atrim=start={s_st}:end={s_en},asetpts=PTS-STARTPTS[ra{s_i}]")
+                        concat_pairs += f"[rv{s_i}][ra{s_i}]"
+                    fc = ";".join(v_parts + a_parts + [f"{concat_pairs}concat=n={len(kept_segments)}:v=1:a=1[outv][outa]"])
+                    subprocess.run([
+                        "ffmpeg", "-y", "-i", out_path,
+                        "-filter_complex", fc,
+                        "-map", "[outv]", "-map", "[outa]",
+                        "-c:v", "libx264", "-preset", "fast", "-c:a", "aac",
+                        ripple_path
+                    ], check=True, capture_output=True)
+                    if os.path.exists(ripple_path) and os.path.getsize(ripple_path) > 0:
+                        out_path = ripple_path
+                except Exception as ripple_err:
+                    logging.warning(f"Transcript ripple splice skipped for {clip_name}: {ripple_err}")
             
             # --- PHASE 4: DYNAMIC B-ROLL TIMELINE ---
             try:

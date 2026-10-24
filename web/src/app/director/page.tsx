@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { API_BASE_URL, WS_BASE_URL, getMediaUrl } from "@/lib/api";
 import { 
   Film, Upload, Loader2, Play, Download, Wand2, Settings2, FileAudio, 
   Lock, Unlock, RefreshCw, CheckCircle2, Sparkles, Clock, Sliders, Flame, 
@@ -38,7 +39,8 @@ export default function DirectorModePage() {
   const [topic, setTopic] = useState("");
   const [targetDuration, setTargetDuration] = useState(45);
   const [selectedStyle, setSelectedStyle] = useState("Cinematic Documentary");
-  const [planningStatus, setPlanningStatus] = useState<"idle" | "planning" | "ready" | "failed">("idle");
+  const [planningStatus, setPlanningStatus] = useState<"idle" | "planning" | "ready" | "failed" | "rendering" | "rendered">("idle");
+  const [renderedPlanVideo, setRenderedPlanVideo] = useState<string | null>(null);
   const [planJobId, setPlanJobId] = useState<string | null>(null);
   const [storyboard, setStoryboard] = useState<StoryboardPlan | null>(null);
   const [planProgress, setPlanProgress] = useState(0);
@@ -67,7 +69,7 @@ export default function DirectorModePage() {
 
   // Load trend ideas on mount
   useEffect(() => {
-    fetch("http://localhost:8008/api/director/trends?niche=technology&count=3")
+    fetch(`${API_BASE_URL}/api/director/trends?niche=technology&count=3`)
       .then(res => res.json())
       .then(data => {
         if (data.opportunities) {
@@ -81,18 +83,24 @@ export default function DirectorModePage() {
   useEffect(() => {
     if (!planJobId) return;
 
-    const ws = new WebSocket(`ws://localhost:8008/api/generate/ws/${planJobId}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/api/generate/ws/${planJobId}`);
     planWsRef.current = ws;
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "log") {
-          setPlanLogMsg(data.message);
-          setPlanProgress(data.progress * 100);
-          setPlanLogs(prev => [...prev, { message: data.message, time: new Date().toLocaleTimeString() }]);
-        } else if (data.type === "plan_ready" || (data.type === "full_state" && data.result)) {
-          const res = data.data || (typeof data.result === "string" ? JSON.parse(data.result) : data.result);
+          const msgText = data.message || data.data || "";
+          setPlanLogMsg(msgText);
+          if (typeof data.progress === "number" && !Number.isNaN(data.progress)) {
+            setPlanProgress(data.progress <= 1.0 ? data.progress * 100 : data.progress);
+          }
+          if (msgText) {
+            setPlanLogs(prev => [...prev, { message: msgText, time: new Date().toLocaleTimeString() }]);
+          }
+        } else if (data.type === "plan_ready" || (data.type === "full_state" && data.data?.result)) {
+          const rawRes = data.data?.result || data.data || data.result;
+          const res = typeof rawRes === "string" && rawRes.trim().startsWith("{") ? JSON.parse(rawRes) : rawRes;
           if (res && res.scenes) {
             setStoryboard(res);
             setPlanningStatus("ready");
@@ -100,6 +108,20 @@ export default function DirectorModePage() {
           }
         } else if (data.type === "storyboard_updated") {
           setStoryboard(data.data);
+        } else if (data.type === "render_complete") {
+          setRenderedPlanVideo(data.video_path);
+          setPlanningStatus("rendered");
+          setPlanProgress(100);
+        } else if (data.type === "update") {
+          const st = data.data || data;
+          if (typeof st.progress === "number") {
+            setPlanProgress(st.progress <= 1.0 ? st.progress * 100 : st.progress);
+          }
+          if (st.step) setPlanLogMsg(st.step);
+          if (st.status === "completed" && typeof st.result === "string" && st.result.endsWith(".mp4")) {
+            setRenderedPlanVideo(st.result);
+            setPlanningStatus("rendered");
+          }
         }
       } catch (e) {
         console.error("WS Parse error", e);
@@ -115,7 +137,7 @@ export default function DirectorModePage() {
   useEffect(() => {
     if (!rawJobId) return;
 
-    const ws = new WebSocket(`ws://localhost:8008/api/generate/ws/${rawJobId}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/api/generate/ws/${rawJobId}`);
     rawWsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -159,7 +181,7 @@ export default function DirectorModePage() {
     setPlanLogs([{ message: `Analyzing topic: '${topic}'`, time: new Date().toLocaleTimeString() }]);
 
     try {
-      const res = await fetch("http://localhost:8008/api/director/autonomous-plan", {
+      const res = await fetch(`${API_BASE_URL}/api/director/autonomous-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -202,7 +224,7 @@ export default function DirectorModePage() {
     if (!storyboard || !planJobId) return;
     setSavingScenes(true);
     try {
-      const res = await fetch("http://localhost:8008/api/director/update-scenes", {
+      const res = await fetch(`${API_BASE_URL}/api/director/update-scenes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -224,7 +246,7 @@ export default function DirectorModePage() {
     if (!planJobId) return;
     setRegeneratingSceneNum(sceneNumber);
     try {
-      const res = await fetch("http://localhost:8008/api/director/regenerate-scene", {
+      const res = await fetch(`${API_BASE_URL}/api/director/regenerate-scene`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,7 +284,7 @@ export default function DirectorModePage() {
     setRawLogs([{ message: "Starting Director Mode...", time: new Date().toLocaleTimeString() }]);
     
     try {
-      const res = await fetch("http://localhost:8008/api/director/process", {
+      const res = await fetch(`${API_BASE_URL}/api/director/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -416,7 +438,7 @@ export default function DirectorModePage() {
           </div>
 
           {/* Planning Progress Display */}
-          {planningStatus === "planning" && (
+          {(planningStatus === "planning" || planningStatus === "rendering") && (
             <div className="glass-card p-6 border border-[#66fcf1]/30 animate-pulse">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -468,13 +490,57 @@ export default function DirectorModePage() {
                     <Save className="h-4 w-4" /> Save Scene Edits
                   </button>
                   <button 
-                    onClick={() => alert("Scene plan confirmed! The rendering pipeline will generate narration voiceovers, synchronized visuals, dynamic cuts, and broadcast-normalized audio.")}
-                    className="px-6 py-2.5 bg-[#66fcf1] hover:bg-[#45f3e5] text-black font-black rounded-xl text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(102,252,241,0.3)] transition-all"
+                    onClick={async () => {
+                      if (!planJobId || !storyboard) return;
+                      setPlanningStatus("rendering");
+                      setPlanProgress(75);
+                      setPlanLogMsg("Synthesizing scene audio & visuals...");
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/api/director/render-plan`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ job_id: planJobId, scenes: storyboard.scenes })
+                        });
+                        if (!res.ok) {
+                          const err = await res.json();
+                          alert("Render failed to start: " + (err.detail || "Unknown error"));
+                          setPlanningStatus("ready");
+                        }
+                      } catch (e) {
+                        alert("Failed to connect to server for rendering.");
+                        setPlanningStatus("ready");
+                      }
+                    }}
+                    disabled={planningStatus === "rendering"}
+                    className="px-6 py-2.5 bg-[#66fcf1] hover:bg-[#45f3e5] text-black font-black rounded-xl text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(102,252,241,0.3)] transition-all disabled:opacity-50"
                   >
-                    <Play className="h-4 w-4" /> Approve & Render Master Video
+                    {planningStatus === "rendering" ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Rendering Master Video...</>
+                    ) : (
+                      <><Play className="h-4 w-4" /> Approve & Render Master Video</>
+                    )}
                   </button>
                 </div>
               </div>
+
+              {/* Rendered Master Video Preview */}
+              {renderedPlanVideo && (
+                <div className="glass-card p-6 border border-[#66fcf1]/40 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-black text-[#66fcf1] uppercase tracking-wider flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5" /> Master Storyboard Video Rendered
+                    </h3>
+                    <a
+                      href={getMediaUrl(renderedPlanVideo)}
+                      download
+                      className="px-4 py-2 bg-[#66fcf1] text-black font-bold rounded-xl text-xs flex items-center gap-2"
+                    >
+                      <Download className="h-4 w-4" /> Download MP4
+                    </a>
+                  </div>
+                  <video src={getMediaUrl(renderedPlanVideo)} controls autoPlay className="w-full max-h-[440px] rounded-xl bg-black border border-white/10" />
+                </div>
+              )}
 
               {/* Storyboard Scene Cards Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

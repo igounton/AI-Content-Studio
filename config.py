@@ -14,6 +14,7 @@ SENSITIVE_KEYS = {
     "GEMINI_API_KEY",
     "WAVESPEED_API_KEY",
     "WAVESPEED_AI_KEY",
+    "OPENAI_API_KEY",
     "NEWS_API_KEY",
     "PIXABAY_API_KEY",
     "YOUTUBE_CLIENT_SECRET",
@@ -55,6 +56,7 @@ def load_config(masked: bool = False):
     default_config = {
         "GEMINI_API_KEY": "",
         "WAVESPEED_API_KEY": "",
+        "WAVESPEED_AI_KEY": "",
         "WAVESPEED_IMAGE_MODEL": "black-forest-labs/flux-1.1-pro-ultra",
         "WAVESPEED_VIDEO_MODEL": "wavespeed-ai/ltx-2.3-text-to-video",
         "WAVESPEED_AUDIO_MODEL": "elevenlabs/text-to-speech",
@@ -107,6 +109,14 @@ def load_config(masked: bool = False):
         "GENERATE_SNIPPETS": False,
         "IMAGE_GENERATION_INTERVAL": 10,
         "TIMED_IMAGES_AS_SLIDESHOW": False,
+        "BRAND_PRIMARY_COLOR": "#6366f1",
+        "BRAND_SECONDARY_COLOR": "#a855f7",
+        "BRAND_HEADING_FONT": "Montserrat",
+        "BRAND_BODY_FONT": "Inter",
+        "BRAND_LOGO_POSITION": "Top Right",
+        "BRAND_WATERMARK_OPACITY": 85,
+        "BRAND_LOGO_PATH": "",
+        "BRAND_INTRO_PATH": "",
     }
 
     config_updated = False
@@ -120,6 +130,12 @@ def load_config(masked: bool = False):
         env_val = os.getenv(key)
         if env_val and not config_data.get(key):
             config_data[key] = env_val
+
+    # Synchronize WAVESPEED_API_KEY and WAVESPEED_AI_KEY aliases
+    ws_key = config_data.get("WAVESPEED_API_KEY") or config_data.get("WAVESPEED_AI_KEY") or ""
+    if ws_key:
+        config_data["WAVESPEED_API_KEY"] = ws_key
+        config_data["WAVESPEED_AI_KEY"] = ws_key
 
     if config_updated:
         logging.info("Configuration updated with new default values. Saving.")
@@ -150,6 +166,12 @@ def save_config(config, config_path=CONFIG_FILE):
             if key in cleaned_config and is_masked_value(cleaned_config[key]):
                 # Retain the unmasked secret from existing config if available
                 cleaned_config[key] = existing.get(key, "")
+
+        # Keep WAVESPEED_API_KEY and WAVESPEED_AI_KEY synchronized on save
+        ws_key = cleaned_config.get("WAVESPEED_API_KEY") or cleaned_config.get("WAVESPEED_AI_KEY") or ""
+        if ws_key:
+            cleaned_config["WAVESPEED_API_KEY"] = ws_key
+            cleaned_config["WAVESPEED_AI_KEY"] = ws_key
 
         with open(config_path, 'w', encoding="utf-8") as f:
             json.dump(cleaned_config, f, indent=4)

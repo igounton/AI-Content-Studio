@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Type, Crop, Mic, Upload, Download, Loader2, Play } from "lucide-react";
+import { Type, Crop, Mic, Upload, Download, Loader2 } from "lucide-react";
+import { API_BASE_URL, getMediaUrl } from "@/lib/api";
 
 export default function ToolsPage() {
   // Caption State
@@ -34,15 +35,16 @@ export default function ToolsPage() {
     formData.append("language", captionLang);
 
     try {
-      const res = await fetch("http://localhost:8008/api/tools/caption", {
+      const res = await fetch(`${API_BASE_URL}/api/tools/caption`, {
         method: "POST",
         body: formData
       });
       const data = await res.json();
-      setCaptionResult(data.path.replace(/\\/g, '/').split('workspace/')[1]);
+      if (!res.ok) throw new Error(data.detail || "Caption generation failed.");
+      setCaptionResult(data.path.replace(/\\/g, "/"));
       setCaptionStatus("done");
-    } catch (e) {
-      alert("Caption generation failed.");
+    } catch (err: any) {
+      alert(err.message || "Caption generation failed.");
       setCaptionStatus("idle");
     }
   };
@@ -57,15 +59,16 @@ export default function ToolsPage() {
     formData.append("target_ar", targetAr);
 
     try {
-      const res = await fetch("http://localhost:8008/api/tools/convert", {
+      const res = await fetch(`${API_BASE_URL}/api/tools/convert`, {
         method: "POST",
         body: formData
       });
       const data = await res.json();
-      setArResult(data.path.replace(/\\/g, '/').split('workspace/')[1]);
+      if (!res.ok) throw new Error(data.detail || "Conversion failed.");
+      setArResult(data.path.replace(/\\/g, "/"));
       setArStatus("done");
-    } catch (e) {
-      alert("Conversion failed.");
+    } catch (err: any) {
+      alert(err.message || "Conversion failed.");
       setArStatus("idle");
     }
   };
@@ -76,16 +79,17 @@ export default function ToolsPage() {
     setTtsStatus("loading");
 
     try {
-      const res = await fetch("http://localhost:8008/api/tools/tts", {
+      const res = await fetch(`${API_BASE_URL}/api/tools/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: ttsText, voice: ttsVoice })
       });
       const data = await res.json();
-      setTtsResult(data.path.replace(/\\/g, '/').split('workspace/')[1]);
+      if (!res.ok) throw new Error(data.detail || "TTS generation failed.");
+      setTtsResult(data.path.replace(/\\/g, "/"));
       setTtsStatus("done");
-    } catch (e) {
-      alert("TTS generation failed.");
+    } catch (err: any) {
+      alert(err.message || "TTS generation failed.");
       setTtsStatus("idle");
     }
   };
@@ -138,7 +142,7 @@ export default function ToolsPage() {
                   <Loader2 className="h-5 w-5 animate-spin" /> Processing...
                 </button>
               ) : captionStatus === "done" ? (
-                <a href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(captionResult)}`} download className="w-full py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl flex justify-center items-center gap-2 hover:bg-emerald-500/30 transition-all">
+                <a href={getMediaUrl(captionResult)} download className="w-full py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl flex justify-center items-center gap-2 hover:bg-emerald-500/30 transition-all">
                   <Download className="h-5 w-5" /> Download Result
                 </a>
               ) : (
@@ -190,7 +194,7 @@ export default function ToolsPage() {
                   <Loader2 className="h-5 w-5 animate-spin" /> Processing...
                 </button>
               ) : arStatus === "done" ? (
-                <a href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(arResult)}`} download className="w-full py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl flex justify-center items-center gap-2 hover:bg-emerald-500/30 transition-all">
+                <a href={getMediaUrl(arResult)} download className="w-full py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl flex justify-center items-center gap-2 hover:bg-emerald-500/30 transition-all">
                   <Download className="h-5 w-5" /> Download Result
                 </a>
               ) : (
@@ -245,9 +249,9 @@ export default function ToolsPage() {
                 </button>
               ) : ttsStatus === "done" ? (
                 <div className="space-y-3">
-                  <audio controls className="w-full h-10" src={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(ttsResult)}`} />
-                  <a href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(ttsResult)}`} download className="w-full py-2 bg-white/10 text-white border border-white/20 text-sm font-bold rounded-lg flex justify-center items-center gap-2 hover:bg-white/20 transition-all">
-                    <Download className="h-4 w-4" /> Download MP3
+                  <audio controls className="w-full h-10" src={getMediaUrl(ttsResult)} />
+                  <a href={getMediaUrl(ttsResult)} download className="w-full py-2 bg-white/10 text-white border border-white/20 text-sm font-bold rounded-lg flex justify-center items-center gap-2 hover:bg-white/20 transition-all">
+                    <Download className="h-4 w-4" /> Download Audio
                   </a>
                 </div>
               ) : (

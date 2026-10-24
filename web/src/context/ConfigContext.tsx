@@ -1,5 +1,7 @@
 "use client";
 
+import { API_BASE_URL, WS_BASE_URL } from "@/lib/api";
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 interface ConfigContextType {
@@ -17,7 +19,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // Load config on mount
   useEffect(() => {
-    fetch("http://localhost:8008/api/config")
+    fetch(`${API_BASE_URL}/api/config`)
       .then(res => res.json())
       .then(data => {
         setConfig(data);
@@ -36,7 +38,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const saveConfig = async () => {
     setStatus("saving");
     try {
-      const res = await fetch("http://localhost:8008/api/config", {
+      const res = await fetch(`${API_BASE_URL}/api/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config)

@@ -6,6 +6,7 @@ import {
   CheckCircle2, Layers, Type, Volume2, Camera, Save, FileText, Loader2,
   RefreshCw, Check, ArrowRight
 } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 interface CaptionStyle {
   words_per_group: number;
@@ -70,7 +71,7 @@ export default function BrandStudioPage() {
 
   const fetchStyles = async () => {
     try {
-      const res = await fetch("http://localhost:8008/api/style");
+      const res = await fetch(`${API_BASE_URL}/api/styles`);
       if (res.ok) {
         const data = await res.json();
         setStyles(data);
@@ -86,6 +87,20 @@ export default function BrandStudioPage() {
 
   useEffect(() => {
     fetchStyles();
+    fetch(`${API_BASE_URL}/api/config`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(cfg => {
+        if (!cfg) return;
+        if (cfg.CHANNEL_NAME) setChannelName(cfg.CHANNEL_NAME);
+        if (cfg.BRAND_PRIMARY_COLOR) setPrimaryColor(cfg.BRAND_PRIMARY_COLOR);
+        if (cfg.BRAND_SECONDARY_COLOR) setSecondaryColor(cfg.BRAND_SECONDARY_COLOR);
+        if (cfg.BRAND_HEADING_FONT) setFontFamily(cfg.BRAND_HEADING_FONT);
+        if (cfg.BRAND_LOGO_POSITION) setWatermarkPos(cfg.BRAND_LOGO_POSITION);
+        if (typeof cfg.BRAND_WATERMARK_OPACITY === "number") setWatermarkOpacity(cfg.BRAND_WATERMARK_OPACITY);
+        if (cfg.SOFTWARE_LOGO_PATH) setLogoFilename(cfg.SOFTWARE_LOGO_PATH.split(/[\\/]/).pop() || "logo.png");
+        if (cfg.INTRO_VIDEO_PATH) setIntroFilename(cfg.INTRO_VIDEO_PATH.split(/[\\/]/).pop() || "intro.mp4");
+      })
+      .catch(e => console.error("Failed to load brand config:", e));
   }, []);
 
   const handleSelectStyle = (profile: StyleProfile) => {
@@ -105,7 +120,7 @@ export default function BrandStudioPage() {
     formData.append("name", refStyleName || "Extracted Reference Style");
 
     try {
-      const res = await fetch("http://localhost:8008/api/style/analyze-reference", {
+      const res = await fetch(`${API_BASE_URL}/api/styles/analyze-reference`, {
         method: "POST",
         body: formData
       });
@@ -130,7 +145,7 @@ export default function BrandStudioPage() {
     if (!editingProfile) return;
     setSavingStyle(true);
     try {
-      const res = await fetch("http://localhost:8008/api/style", {
+      const res = await fetch(`${API_BASE_URL}/api/styles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editingProfile)
@@ -156,7 +171,7 @@ export default function BrandStudioPage() {
     if (!confirm("Are you sure you want to delete this custom style profile?")) return;
 
     try {
-      const res = await fetch(`http://localhost:8008/api/style/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/styles/${id}`, {
         method: "DELETE"
       });
       if (res.ok) {
@@ -169,9 +184,46 @@ export default function BrandStudioPage() {
     }
   };
 
-  const handleSaveBrandKit = () => {
-    setBrandSaved(true);
-    setTimeout(() => setBrandSaved(false), 3000);
+  const handleUploadBrandAsset = async (assetType: "logo" | "intro", file: File | null) => {
+    if (!file) return;
+    if (assetType === "logo") setLogoFilename(file.name);
+    else setIntroFilename(file.name);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      await fetch(`${API_BASE_URL}/api/brand/upload?type=${assetType}`, {
+        method: "POST",
+        body: formData
+      });
+    } catch (e) {
+      console.error(`Failed to upload ${assetType}`, e);
+    }
+  };
+
+  const handleSaveBrandKit = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          CHANNEL_NAME: channelName,
+          BRAND_PRIMARY_COLOR: primaryColor,
+          BRAND_SECONDARY_COLOR: secondaryColor,
+          BRAND_HEADING_FONT: fontFamily,
+          BRAND_LOGO_POSITION: watermarkPos,
+          BRAND_WATERMARK_OPACITY: watermarkOpacity,
+        })
+      });
+      if (res.ok) {
+        setBrandSaved(true);
+        setTimeout(() => setBrandSaved(false), 3000);
+      } else {
+        alert("Failed to save Brand Identity Kit.");
+      }
+    } catch (e) {
+      alert("Error connecting to server while saving Brand Identity Kit.");
+    }
   };
 
   return (
@@ -719,7 +771,7 @@ export default function BrandStudioPage() {
                     <input 
                       type="file" 
                       accept="image/png,image/svg+xml" 
-                      onChange={e => setLogoFilename(e.target.files?.[0]?.name || null)}
+                      onChange={e => handleUploadBrandAsset("logo", e.target.files?.[0] || null)}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
                     <Upload className="h-5 w-5 text-[#66fcf1] mb-2" />
@@ -731,7 +783,7 @@ export default function BrandStudioPage() {
                     <input 
                       type="file" 
                       accept="video/mp4" 
-                      onChange={e => setIntroFilename(e.target.files?.[0]?.name || null)}
+                      onChange={e => handleUploadBrandAsset("intro", e.target.files?.[0] || null)}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
                     <Film className="h-5 w-5 text-purple-400 mb-2" />

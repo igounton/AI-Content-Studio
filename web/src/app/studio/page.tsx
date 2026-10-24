@@ -5,6 +5,8 @@ import { Play, Square, Sparkles, CheckCircle2, AlertCircle, Loader2, Globe2, Mus
 import { TabSelect } from "@/components/TabSelect";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useConfig } from "@/context/ConfigContext";
+import { API_BASE_URL, WS_BASE_URL, getMediaUrl } from "@/lib/api";
+import { Download } from "lucide-react";
 
 const PIPELINE_STEPS = [
   "Deep Research",
@@ -149,7 +151,7 @@ export default function CreatorStudio() {
         generate_snippets: genSnippets, script_length: scriptLength
       };
 
-      const res = await fetch("http://localhost:8008/api/generate/quick", {
+      const res = await fetch(`${API_BASE_URL}/api/generate/quick`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -165,7 +167,7 @@ export default function CreatorStudio() {
 
   const handleCancel = async () => {
     if (jobId) {
-      await fetch(`http://localhost:8008/api/cancel/${jobId}`, { method: "POST" });
+      await fetch(`${API_BASE_URL}/api/generate/cancel/${jobId}`, { method: "POST" });
     }
     setStatus("idle");
     setLogs(prev => [...prev, "Job cancelled by user."]);
@@ -175,7 +177,7 @@ export default function CreatorStudio() {
     let ws: WebSocket;
     
     if (status === "running" && jobId) {
-      ws = new WebSocket(`ws://localhost:8008/api/generate/ws/${jobId}`);
+      ws = new WebSocket(`${WS_BASE_URL}/api/generate/ws/${jobId}`);
       
       ws.onmessage = (event) => {
         try {
@@ -183,7 +185,7 @@ export default function CreatorStudio() {
           
           if (msg.type === "full_state") {
             const data = msg.data;
-            if (data.progress) setProgress(data.progress);
+            if (typeof data.progress === "number") setProgress(data.progress <= 1.0 ? data.progress * 100 : data.progress);
             if (data.step) setCurrentStep(data.step);
             if (data.logs) setLogs(data.logs);
           } else if (msg.type === "update") {
@@ -196,7 +198,7 @@ export default function CreatorStudio() {
               setStatus("error");
               ws.close();
             }
-            if (data.progress) setProgress(data.progress);
+            if (typeof data.progress === "number") setProgress(data.progress <= 1.0 ? data.progress * 100 : data.progress);
             if (data.step) setCurrentStep(data.step);
           } else if (msg.type === "log") {
             setLogs(prev => [...prev, msg.data]);
@@ -407,9 +409,22 @@ export default function CreatorStudio() {
 
             {status === "completed" && (
               <div className="my-auto space-y-4 py-4 text-center">
-                <CheckCircle2 className="h-12 w-12 text-white mx-auto" />
+                <CheckCircle2 className="h-10 w-10 text-emerald-400 mx-auto" />
                 <h3 className="text-xl font-bold text-white">Video Generated Successfully!</h3>
-                <p className="text-zinc-400">Your video has been saved locally.</p>
+                {finalVideo && (
+                  <div className="space-y-4 max-w-xl mx-auto">
+                    <div className="aspect-video bg-black rounded-xl overflow-hidden border border-white/15">
+                      <video src={getMediaUrl(finalVideo)} controls autoPlay className="w-full h-full object-contain" />
+                    </div>
+                    <a
+                      href={getMediaUrl(finalVideo)}
+                      download
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-xl text-xs transition-all"
+                    >
+                      <Download className="h-4 w-4" /> Download Master Video
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>

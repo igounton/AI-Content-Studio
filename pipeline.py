@@ -22,6 +22,17 @@ import unicodedata
 from pydub import AudioSegment
 import whisper
 import pysubs2
+from PIL import Image
+
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = getattr(Image, "Resampling", Image).LANCZOS
+
+_WHISPER_MODELS = {}
+
+def get_whisper_model(model_name: str = "base"):
+    if model_name not in _WHISPER_MODELS:
+        _WHISPER_MODELS[model_name] = whisper.load_model(model_name)
+    return _WHISPER_MODELS[model_name]
 
 # Import the API client classes
 from api_clients import GoogleClient, WaveSpeedClient, NewsApiClient, PixabayClient
@@ -184,7 +195,7 @@ def generate_captions(audio_file, captions_file, language: str, style_opts: dict
     """Transcribes audio and generates a styled ASS caption file, returning word timestamps."""
     logging.info("Transcribing audio for captions (this may take a moment)...")
     try:
-        model = whisper.load_model("base")
+        model = get_whisper_model("base")
         result = model.transcribe(audio_file, word_timestamps=True, language=language)
         
         all_word_timestamps = []
@@ -301,7 +312,7 @@ class Pipeline:
         self.update_timestamps = timestamps_callback # New callback
         self.on_script_generated = on_script_generated
         self.google_client = GoogleClient(config)
-        self.wavespeed_client = WaveSpeedClient(config.get("WAVESPEED_API_KEY"))
+        self.wavespeed_client = WaveSpeedClient(config.get("WAVESPEED_API_KEY") or config.get("WAVESPEED_AI_KEY"))
         self.news_client = NewsApiClient(config.get("NEWS_API_KEY"))
         self.pixabay_client = PixabayClient(config.get("PIXABAY_API_KEY"))
 
@@ -340,8 +351,8 @@ class Pipeline:
         self.word_timestamps_for_images = []
         try:
             logging.info(f"Starting pipeline for topic: '{topic}' from step: '{start_point}'")
-            safe_topic = re.sub(r'[\\/:*?"<>|]', '', topic)
-            output_dir = safe_topic
+            safe_topic = re.sub(r'[\\/:*?"<>|]', '', topic).strip().replace(" ", "_") or "project"
+            output_dir = os.path.join("workspace", safe_topic)
             os.makedirs(output_dir, exist_ok=True)
             
             # --- File Paths ---

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Play, Loader2, Maximize, AlertCircle, StopCircle, LogIn, SlidersHorizontal } from "lucide-react";
+import { Play, Loader2, Maximize, AlertCircle, StopCircle, LogIn, SlidersHorizontal, Download } from "lucide-react";
+import { API_BASE_URL, WS_BASE_URL, getMediaUrl } from "@/lib/api";
 
 export default function VideoFXFlowPage() {
   const [prompt, setPrompt] = useState("");
@@ -16,13 +17,13 @@ export default function VideoFXFlowPage() {
   useEffect(() => {
     let ws: WebSocket;
     if (jobId && status === "running") {
-      ws = new WebSocket(`ws://localhost:8008/api/videofx/ws/${jobId}`);
+      ws = new WebSocket(`${WS_BASE_URL}/api/videofx/ws/${jobId}`);
       
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === "status") {
-            const data = msg.data;
+          if (msg.type === "status" || msg.type === "update" || msg.type === "full_state") {
+            const data = msg.data || msg;
             if (data.status === "completed") {
               setStatus("completed");
               if (data.result) setVideoResult(data.result);
@@ -33,7 +34,7 @@ export default function VideoFXFlowPage() {
               ws.close();
             }
           } else if (msg.type === "log") {
-            setLogs(prev => [...prev, msg.data]);
+            setLogs(prev => [...prev, msg.data || msg.message]);
           } else if (msg.type === "browser_frame") {
             setBrowserFrame(msg.data);
           }
@@ -60,7 +61,7 @@ export default function VideoFXFlowPage() {
     const finalPrompt = `${prompt}, ${style} style, ${aspectRatio === "16:9" ? "horizontal 16:9" : aspectRatio === "9:16" ? "vertical 9:16" : "square 1:1"} aspect ratio`;
     
     try {
-      const res = await fetch("http://localhost:8008/api/videofx/generate", {
+      const res = await fetch(`${API_BASE_URL}/api/videofx/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: finalPrompt })
@@ -76,7 +77,7 @@ export default function VideoFXFlowPage() {
   const handleStop = async () => {
     if (!jobId) return;
     try {
-      await fetch(`http://localhost:8008/api/videofx/job/${jobId}`, { method: "DELETE" });
+      await fetch(`${API_BASE_URL}/api/videofx/job/${jobId}`, { method: "DELETE" });
       setStatus("error");
       setLogs(prev => [...prev, "Generation cancelled by user."]);
     } catch (e) {
@@ -86,7 +87,7 @@ export default function VideoFXFlowPage() {
 
   const handleLogin = async () => {
     try {
-      await fetch("http://localhost:8008/api/videofx/login", { method: "POST" });
+      await fetch(`${API_BASE_URL}/api/videofx/login`, { method: "POST" });
       alert("A browser window will open shortly on your computer. Please log in to your Google Account there. Your session will be saved forever, so you only need to do this once!");
     } catch (e) {
       console.error(e);
@@ -224,8 +225,11 @@ export default function VideoFXFlowPage() {
             )}
             
             {status === "completed" && videoResult && (
-              <div className="w-full h-full relative flex items-center justify-center bg-black rounded-lg overflow-hidden">
-                <video src={`http://localhost:8008/${videoResult}`} controls className="w-full h-full object-contain" autoPlay loop />
+              <div className="w-full h-full relative flex flex-col items-center justify-center bg-black rounded-lg overflow-hidden p-4 gap-3">
+                <video src={getMediaUrl(videoResult)} controls className="w-full max-h-[440px] object-contain" autoPlay loop />
+                <a href={getMediaUrl(videoResult)} download className="modern-button text-xs px-4 py-2 flex items-center gap-2">
+                  <Download className="h-4 w-4" /> Download VideoFX Clip
+                </a>
               </div>
             )}
           </div>

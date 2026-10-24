@@ -203,7 +203,7 @@ class GoogleClient:
                 raise RuntimeError(f"Ollama local generation failed: {e}")
                 
         elif engine == "WaveSpeed AI":
-            api_key = self.config.get("WAVESPEED_AI_KEY")
+            api_key = self.config.get("WAVESPEED_API_KEY") or self.config.get("WAVESPEED_AI_KEY")
             if not api_key: raise ValueError("WaveSpeed AI key is missing for Text Engine.")
             
             model_id = self.config.get("WAVESPEED_TEXT_MODEL", "meta-llama/llama-3.3-70b-instruct")
@@ -781,6 +781,9 @@ class WaveSpeedClient:
         initial_response.raise_for_status()
         req_id = initial_response.json().get("data", {}).get("id")
         self._poll_and_download(req_id, output_path, timeout=600)
+
+    def generate_speech(self, text: str, voice: str, output_path: str, model_id: str = "elevenlabs/text-to-speech"):
+        return self.text_to_speech(model_id=model_id, text=text, output_path=output_path, voice=voice)
 
     def text_to_speech(self, model_id: str, text: str, output_path: str, voice: str = "Brian"):
         if not self.api_key: raise ValueError("WaveSpeed AI key is missing.")

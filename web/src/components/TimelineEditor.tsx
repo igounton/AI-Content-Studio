@@ -1,10 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
+import { API_BASE_URL } from "@/lib/api";
 import { 
   Play, Pause, FastForward, Rewind, Scissors, Type, Image as ImageIcon,
   Volume2, VolumeX, Lock, Unlock, Sparkles, Send, Trash2, Check, RefreshCw
 } from "lucide-react";
+
+interface TranscriptSegment {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  deleted?: boolean;
+}
 
 interface TimelineClipData {
   id?: string;
@@ -12,7 +21,10 @@ interface TimelineClipData {
   end: number;
   title?: string;
   text?: string;
+  reason?: string;
   broll?: Array<{ start_offset: number; end_offset: number; subject: string }>;
+  transcript_segments?: TranscriptSegment[];
+  kept_segments?: TranscriptSegment[];
 }
 
 interface TimelineEditorProps {
@@ -39,12 +51,17 @@ export default function TimelineEditor({ clip, onSave, onCancel }: TimelineEdito
   const [aiStatusMsg, setAiStatusMsg] = useState("");
   const [isProcessingAI, setIsProcessingAI] = useState(false);
 
-  // Mock transcript sentences for text-based editing
-  const [transcriptSentences, setTranscriptSentences] = useState([
-    { id: "s1", start: startTime, end: startTime + 4.5, text: "Here is the critical turning point nobody saw coming." },
-    { id: "s2", start: startTime + 4.5, end: startTime + 10.2, text: "Engineers discovered that quantum coherence can be sustained." },
-    { id: "s3", start: startTime + 10.2, end: endTime, text: "This will completely change how we design security protocols." }
-  ]);
+  // Initialize transcript sentences from real clip Whisper segments when available
+  const initialSegments: TranscriptSegment[] =
+    clip?.transcript_segments && clip.transcript_segments.length > 0
+      ? clip.transcript_segments
+      : [
+          { id: "s1", start: 0, end: Math.min(4.5, Math.max(2, (endTime - startTime) / 3)), text: clip?.title || "Opening hook statement" },
+          { id: "s2", start: Math.min(4.5, Math.max(2, (endTime - startTime) / 3)), end: Math.max(5, ((endTime - startTime) * 2) / 3), text: clip?.reason || "Core insight and narrative highlight" },
+          { id: "s3", start: Math.max(5, ((endTime - startTime) * 2) / 3), end: Math.max(6, endTime - startTime), text: "Closing takeaway and call to action" }
+        ];
+  const [transcriptSentences, setTranscriptSentences] = useState<TranscriptSegment[]>(initialSegments);
+  const [hasDeletedSegments, setHasDeletedSegments] = useState(false);
 
   const duration = Math.max(0.1, endTime - startTime);
 
@@ -54,7 +71,7 @@ export default function TimelineEditor({ clip, onSave, onCancel }: TimelineEdito
     setAiStatusMsg("AI analyzing timeline...");
 
     try {
-      const res = await fetch("http://localhost:8008/api/timeline/ai-command", {
+      const res = await fetch(`${API_BASE_URL}/api/timeline/ai-command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -87,11 +104,11 @@ export default function TimelineEditor({ clip, onSave, onCancel }: TimelineEdito
   const handleDeleteSentence = (id: string) => {
     const target = transcriptSentences.find(s => s.id === id);
     if (!target) return;
-    const sentenceDur = target.end - target.start;
+    const sentenceDur = Math.max(0.2, target.end - target.start);
     setTranscriptSentences(prev => prev.filter(s => s.id !== id));
-    // Ripple edit: reduce end time by deleted duration
+    setHasDeletedSegments(true);
     setEndTime(prev => Math.max(startTime + 2, prev - sentenceDur));
-    setAiStatusMsg(`Ripple edit: deleted sentence and trimmed ${sentenceDur.toFixed(1)}s.`);
+    setAiStatusMsg(`Ripple edit: deleted segment and spliced ${sentenceDur.toFixed(1)}s from media stream.`);
   };
 
   return (
@@ -133,7 +150,7 @@ export default function TimelineEditor({ clip, onSave, onCancel }: TimelineEdito
             Cancel
           </button>
           <button 
-            onClick={() => onSave({ ...clip, start: startTime, end: endTime, broll: brollClips })} 
+            onClick={() => onSave({ ...clip, start: startTime, end: endTime, broll: brollClips, transcript_segments: transcriptSentences, kept_segments: hasDeletedSegments ? transcriptSentences : clip?.kept_segments })} 
             className="px-4 py-1.5 text-xs font-bold bg-[#66fcf1] text-black rounded-lg hover:bg-[#45f3e5] transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(102,252,241,0.25)]"
           >
             <Check className="h-3.5 w-3.5" /> Save Cuts

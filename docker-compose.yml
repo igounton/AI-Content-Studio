@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./workspace:/app/workspace
+      - ./outputs:/app/outputs
+      - ./assets:/app/assets
+      - ./config.json:/app/config.json
+    environment:
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    restart: unless-stopped
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./web:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8008
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8008
+    command: sh -c "npm install && npm run build && npm run start"
+    depends_on:
+      - backend
+    restart: unless-stopped

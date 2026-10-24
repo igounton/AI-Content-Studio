@@ -1,5 +1,7 @@
 "use client";
 
+import { API_BASE_URL, WS_BASE_URL } from "@/lib/api";
+
 import { useState, useEffect } from "react";
 import { Plus, Play, Pause, Trash2, Bot, Clock, Sparkles } from "lucide-react";
 
@@ -14,7 +16,7 @@ export default function CampaignsPage() {
 
   const fetchCampaigns = async () => {
     try {
-      const res = await fetch("http://localhost:8008/api/campaigns");
+      const res = await fetch(`${API_BASE_URL}/api/campaigns`);
       const data = await res.json();
       setCampaigns(data.campaigns || []);
     } catch (e) {
@@ -33,7 +35,7 @@ export default function CampaignsPage() {
     e.preventDefault();
     if (!name || !niche) return;
     try {
-      await fetch("http://localhost:8008/api/campaigns", {
+      await fetch(`${API_BASE_URL}/api/campaigns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, niche, preset, frequency_hours: parseFloat(frequency) })
@@ -47,13 +49,13 @@ export default function CampaignsPage() {
   };
 
   const handleToggle = async (cid: string) => {
-    await fetch(`http://localhost:8008/api/campaigns/${cid}/toggle`, { method: "POST" });
+    await fetch(`${API_BASE_URL}/api/campaigns/${cid}/toggle`, { method: "POST" });
     fetchCampaigns();
   };
 
   const handleDelete = async (cid: string) => {
     if (!confirm("Are you sure?")) return;
-    await fetch(`http://localhost:8008/api/campaigns/${cid}`, { method: "DELETE" });
+    await fetch(`${API_BASE_URL}/api/campaigns/${cid}`, { method: "DELETE" });
     fetchCampaigns();
   };
 

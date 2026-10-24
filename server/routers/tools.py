@@ -5,13 +5,15 @@ import subprocess
 from pydantic import BaseModel
 import tempfile
 import pipeline
-from api_clients import STYLE_PROFILES, WaveSpeedClient
-from config import load_config
+from api_clients import STYLE_PROFILES, WaveSpeedClient, GoogleClient
+from config import load_config, VOICE_OPTIONS
 
 router = APIRouter()
 
 TOOLS_DIR = "workspace/tools_output"
 os.makedirs(TOOLS_DIR, exist_ok=True)
+
+GEMINI_VOICES = set(VOICE_OPTIONS.keys()) | {"Kore", "Aoede", "Charon", "Fenrir", "Puck", "Zephyr", "Orus"}
 
 @router.post("/caption")
 def generate_captions(
@@ -45,8 +47,8 @@ def generate_captions(
         
         os.remove(tmp_in_path)
         
-        # Return URL to fetch the file (using the /api/generate/media endpoint)
-        return {"message": "Captions generated successfully", "path": out_path}
+        # Return normalized workspace path for /api/generate/media
+        return {"message": "Captions generated successfully", "path": out_path.replace("\\", "/")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -80,7 +82,7 @@ def convert_aspect_ratio(
         
         os.remove(tmp_in_path)
         
-        return {"message": "Video converted successfully", "path": out_path}
+        return {"message": "Video converted successfully", "path": out_path.replace("\\", "/")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -91,14 +93,30 @@ class TTSRequest(BaseModel):
 @router.post("/tts")
 def generate_tts(req: TTSRequest):
     try:
+        if not req.text or not req.text.strip():
+            raise ValueError("Text is required for speech generation.")
+
         config = load_config()
-        tts_client = WaveSpeedClient(config.get("WAVESPEED_API_KEY", ""))
-        
-        filename = f"tts_{req.voice}_{hash(req.text) % 10000}.mp3"
-        out_path = os.path.join(TOOLS_DIR, filename)
-        
-        tts_client.generate_speech(req.text, req.voice, out_path)
-        
-        return {"message": "Audio generated successfully", "path": out_path}
+        ws_key = config.get("WAVESPEED_API_KEY") or config.get("WAVESPEED_AI_KEY") or ""
+        gemini_key = config.get("GEMINI_API_KEY", "")
+
+        # Route to Gemini TTS if voice is a Gemini voice and Gemini key is available, else WaveSpeed TTS
+        if gemini_key and (req.voice in GEMINI_VOICES or not ws_key):
+            filename = f"tts_{req.voice}_{abs(hash(req.text)) % 10000}.wav"
+            out_path = os.path.join(TOOLS_DIR, filename)
+            g_client = GoogleClient(config)
+            g_client.generate_tts(req.text, out_path, {"SPEAKER1": req.voice, "CONTENT_STYLE": "Narration"})
+        elif ws_key:
+            filename = f"tts_{req.voice}_{abs(hash(req.text)) % 10000}.mp3"
+            out_path = os.path.join(TOOLS_DIR, filename)
+            tts_client = WaveSpeedClient(ws_key)
+            audio_model = config.get("WAVESPEED_AUDIO_MODEL", "elevenlabs/text-to-speech")
+            tts_client.generate_speech(req.text, req.voice, out_path, model_id=audio_model)
+        else:
+            raise ValueError("No TTS API key configured. Please set GEMINI_API_KEY or WAVESPEED_API_KEY in Settings.")
+
+        return {"message": "Audio generated successfully", "path": out_path.replace("\\", "/")}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

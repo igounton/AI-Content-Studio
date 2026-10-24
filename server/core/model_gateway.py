@@ -2,7 +2,7 @@
 server/core/model_gateway.py
 
 Multi-Model AI Gateway supporting Gemini, OpenAI-compatible APIs, 
-Anthropic, and local Ollama inference with task-based routing and automated failover.
+WaveSpeed LLM, and local Ollama inference with task-based routing and automated failover.
 """
 
 import os
@@ -60,8 +60,8 @@ class GeminiProvider(BaseModelProvider):
         return parts[0].get("text", "")
 
 class OpenAICompatibleProvider(BaseModelProvider):
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", model_name: str = "gpt-4o-mini"):
-        super().__init__("OpenAI-Compatible")
+    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", model_name: str = "gpt-4o-mini", provider_label: str = "OpenAI-Compatible"):
+        super().__init__(provider_label)
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
@@ -88,11 +88,11 @@ class OpenAICompatibleProvider(BaseModelProvider):
         }
         res = requests.post(url, json=payload, headers=headers, timeout=45)
         if res.status_code != 200:
-            raise Exception(f"OpenAI API returned {res.status_code}: {res.text[:300]}")
+            raise Exception(f"{self.name} API returned {res.status_code}: {res.text[:300]}")
         data = res.json()
         choices = data.get("choices", [])
         if not choices:
-            raise Exception("OpenAI returned no choices.")
+            raise Exception(f"{self.name} returned no choices.")
         return choices[0].get("message", {}).get("content", "")
 
 class OllamaProvider(BaseModelProvider):
@@ -123,17 +123,34 @@ class OllamaProvider(BaseModelProvider):
 
 class ModelGateway:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self._has_explicit_config = config is not None
         self.config = config or load_config()
+        self._init_providers()
+
+    def refresh_config(self):
+        """Reloads config.json dynamically unless a custom config/mock provider was injected."""
+        if self._has_explicit_config:
+            return
+        if "mock" in getattr(self, "providers", {}):
+            return
+        self.config = load_config()
         self._init_providers()
 
     def _init_providers(self):
         gemini_key = self.config.get("GEMINI_API_KEY", "")
         openai_key = self.config.get("OPENAI_API_KEY", "")
+        wavespeed_key = self.config.get("WAVESPEED_API_KEY") or self.config.get("WAVESPEED_AI_KEY") or ""
         ollama_url = self.config.get("OLLAMA_BASE_URL", "http://localhost:11434")
         ollama_model = self.config.get("OLLAMA_MODEL", "llama3")
 
         self.providers: Dict[str, BaseModelProvider] = {
             "gemini": GeminiProvider(gemini_key, model_name=self.config.get("GEMINI_MODEL", "gemini-2.5-flash")),
+            "wavespeed": OpenAICompatibleProvider(
+                api_key=wavespeed_key,
+                base_url="https://api.wavespeed.ai/v1",
+                model_name=self.config.get("WAVESPEED_TEXT_MODEL", "meta-llama/llama-3.3-70b-instruct"),
+                provider_label="WaveSpeed LLM"
+            ),
             "openai": OpenAICompatibleProvider(
                 api_key=openai_key,
                 base_url=self.config.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
@@ -145,14 +162,17 @@ class ModelGateway:
     def get_preferred_order(self, task: str = "general") -> List[str]:
         engine_pref = self.config.get("TEXT_ENGINE", "Gemini API").lower()
         if "gemini" in engine_pref:
-            order = ["gemini", "openai", "ollama"]
+            order = ["gemini", "wavespeed", "openai", "ollama"]
+        elif "wavespeed" in engine_pref:
+            order = ["wavespeed", "gemini", "openai", "ollama"]
         elif "ollama" in engine_pref or "local" in engine_pref:
-            order = ["ollama", "gemini", "openai"]
+            order = ["ollama", "gemini", "wavespeed", "openai"]
         else:
-            order = ["openai", "gemini", "ollama"]
+            order = ["openai", "gemini", "wavespeed", "ollama"]
         return order
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None, task: str = "general", **kwargs) -> str:
+        self.refresh_config()
         order = self.get_preferred_order(task)
         last_error = None
 

@@ -184,7 +184,7 @@ class DirectorAgent(BaseAgent):
 class ImageGenAgent(BaseAgent):
     def run(self, scenes, output_dir, aspect_ratio="16:9"):
         self.set_status("Generating Images...", "running")
-        wavespeed = WaveSpeedClient(self.config.get("WAVESPEED_AI_KEY"))
+        wavespeed = WaveSpeedClient(self.config.get("WAVESPEED_API_KEY") or self.config.get("WAVESPEED_AI_KEY"))
         
         images_dir = os.path.join(output_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
@@ -219,7 +219,7 @@ class ImageGenAgent(BaseAgent):
 class VideoGenAgent(BaseAgent):
     def run(self, scenes, image_paths, output_dir, aspect_ratio="16:9"):
         self.set_status("Generating Videos...", "running")
-        wavespeed = WaveSpeedClient(self.config.get("WAVESPEED_AI_KEY"))
+        wavespeed = WaveSpeedClient(self.config.get("WAVESPEED_API_KEY") or self.config.get("WAVESPEED_AI_KEY"))
         
         video_dir = os.path.join(output_dir, "videos")
         os.makedirs(video_dir, exist_ok=True)

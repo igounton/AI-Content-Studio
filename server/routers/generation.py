@@ -6,8 +6,13 @@ import threading
 import traceback
 import os
 import json
+import glob
 
-from server.core.queue import create_job, update_job, get_job, stop_job, add_log, current_job_id, _JOBS, manager, submit_to_queue
+from server.core.queue import (
+    create_job, update_job, get_job, stop_job, add_log,
+    current_job_id, _JOBS, manager, submit_to_queue, list_jobs
+)
+from server.core.model_gateway import gateway
 from config import load_config, save_config
 import pipeline
 from agents import TrendAgent, WriterAgent, DirectorAgent, AgentOrchestrator
@@ -88,7 +93,7 @@ def run_pipeline_task(job_id: str, req: GenerationRequest):
         if stop_event.is_set():
             update_job(job_id, status="cancelled")
         elif final_vid and os.path.exists(final_vid):
-            update_job(job_id, status="completed", result=final_vid, progress=1.0)
+            update_job(job_id, status="completed", result=final_vid.replace("\\", "/"), progress=1.0)
         else:
             update_job(job_id, status="failed", error="Video file output was not produced. Please check your API keys or FFmpeg setup.", progress=1.0)
             
@@ -107,8 +112,6 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     await manager.connect(websocket, job_id)
     try:
         while True:
-            # We don't really expect to receive much from the client, 
-            # but we keep the connection open and listen for close.
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, job_id)
@@ -116,7 +119,6 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
 @router.get("/viral-topics")
 def get_viral_topics():
     config = load_config()
-    # Standalone topic discovery does not depend on a job context
     topic_logger_ui = JobUI("topic_discovery")
     trend_agent = TrendAgent(config, topic_logger_ui, "TrendAgent")
     topics = trend_agent.find_viral_topics()
@@ -136,7 +138,6 @@ def cancel_job(job_id: str):
 
 @router.get("/settings")
 def get_app_settings():
-    # Never expose unmasked credentials in settings read responses
     return load_config(masked=True)
 
 @router.post("/settings")
@@ -144,75 +145,55 @@ def update_app_settings(new_config: Dict[str, Any]):
     current = load_config()
     current.update(new_config)
     save_config(current)
+    gateway.refresh_config()
     return {"message": "Settings saved successfully."}
 
 @router.get("/history")
 def get_generation_history():
-    import glob
     workspace_dir = "workspace"
-    if not os.path.exists(workspace_dir):
-        return []
-    
     projects = []
-    for folder in os.listdir(workspace_dir):
-        folder_path = os.path.join(workspace_dir, folder)
-        if not os.path.isdir(folder_path): continue
-            
-        # Determine project type
-        project_type = "clipper" if folder.startswith("clipper_") else "podcast"
-        
-        videos = []
-        scripts = []
-        
-        # Get creation time (approx) based on directory creation
-        created_at = os.path.getctime(folder_path)
-        
-        if project_type == "podcast":
-            vid = os.path.join(folder_path, "final_podcast.mp4")
-            if not os.path.exists(vid): vid = os.path.join(folder_path, "final_podcast_video.mp4")
-            if os.path.exists(vid): videos.append({"title": "Full Podcast", "path": vid.replace("\\", "/")})
-            
-            script = os.path.join(folder_path, "podcast_script.txt")
-            if os.path.exists(script): scripts.append(script.replace("\\", "/"))
-        else:
-            # Clipper shorts
-            clip_files = glob.glob(os.path.join(folder_path, "Final_*.mp4"))
-            for cf in clip_files:
-                basename = os.path.basename(cf)
-                title = basename.replace("Final_", "").replace(".mp4", "").replace("_", " ")
-                videos.append({"title": title, "path": cf.replace("\\", "/")})
-                
-        # Only add projects that have some content
-        if videos or scripts:
-            projects.append({
-                "id": folder,
-                "type": project_type,
-                "created_at": created_at,
-                "videos": videos,
-                "scripts": scripts
-            })
-            
-    # Also check outputs directory for explainer videos
-    outputs_dir = "outputs"
-    if os.path.exists(outputs_dir):
-        for folder in os.listdir(outputs_dir):
-            if not folder.startswith("explainer_"): continue
-            folder_path = os.path.join(outputs_dir, folder)
-            if not os.path.isdir(folder_path): continue
-            
-            project_type = "movie explainer"
-            created_at = os.path.getctime(folder_path)
-            
+
+    if os.path.exists(workspace_dir):
+        for folder in os.listdir(workspace_dir):
+            folder_path = os.path.join(workspace_dir, folder)
+            if not os.path.isdir(folder_path) or folder == "tools_output":
+                continue
+
+            if folder.startswith("clipper_"):
+                project_type = "clipper"
+            elif folder.startswith("director_") or folder.startswith("plan_"):
+                project_type = "director"
+            else:
+                project_type = "podcast"
+
             videos = []
-            final_vid = os.path.join(folder_path, "final_explainer.mp4")
-            if os.path.exists(final_vid):
-                videos.append({"title": "Full Explainer Video", "path": final_vid.replace("\\", "/")})
-                
             scripts = []
-            script_file = os.path.join(folder_path, "script.json")
-            if os.path.exists(script_file):
-                scripts.append(script_file.replace("\\", "/"))
-                
+            created_at = os.path.getctime(folder_path)
+
+            if project_type == "podcast":
+                for candidate in ("final_podcast.mp4", "final_podcast_video.mp4", "master_render.mp4"):
+                    vid = os.path.join(folder_path, candidate)
+                    if os.path.exists(vid):
+                        videos.append({"title": "Full Podcast", "path": vid.replace("\\", "/")})
+                        break
+                script = os.path.join(folder_path, "podcast_script.txt")
+                if os.path.exists(script):
+                    scripts.append(script.replace("\\", "/"))
+            elif project_type == "director":
+                for candidate in ("master_render.mp4", "final_director.mp4", "edited_output.mp4"):
+                    vid = os.path.join(folder_path, candidate)
+                    if os.path.exists(vid):
+                        videos.append({"title": "Director Cut", "path": vid.replace("\\", "/")})
+                script = os.path.join(folder_path, "storyboard.json")
+                if os.path.exists(script):
+                    scripts.append(script.replace("\\", "/"))
+            else:
+                clip_files = glob.glob(os.path.join(folder_path, "Final_*.mp4"))
+                for cf in clip_files:
+                    basename = os.path.basename(cf)
+                    title = basename.replace("Final_", "").replace(".mp4", "").replace("_", " ")
+                    videos.append({"title": title, "path": cf.replace("\\", "/")})
+
             if videos or scripts:
                 projects.append({
                     "id": folder,
@@ -221,15 +202,91 @@ def get_generation_history():
                     "videos": videos,
                     "scripts": scripts
                 })
-            
-    # Sort descending by creation date
+
+    outputs_dir = "outputs"
+    if os.path.exists(outputs_dir):
+        for folder in os.listdir(outputs_dir):
+            folder_path = os.path.join(outputs_dir, folder)
+            if not os.path.isdir(folder_path):
+                continue
+
+            created_at = os.path.getctime(folder_path)
+            videos = []
+            scripts = []
+
+            if folder.startswith("explainer_"):
+                project_type = "movie explainer"
+                final_vid = os.path.join(folder_path, "final_explainer.mp4")
+                if os.path.exists(final_vid):
+                    videos.append({"title": "Full Explainer Video", "path": final_vid.replace("\\", "/")})
+                script_file = os.path.join(folder_path, "script.json")
+                if os.path.exists(script_file):
+                    scripts.append(script_file.replace("\\", "/"))
+            elif folder.startswith("director_"):
+                project_type = "director"
+                for mp4 in glob.glob(os.path.join(folder_path, "*.mp4")):
+                    videos.append({"title": os.path.basename(mp4), "path": mp4.replace("\\", "/")})
+            else:
+                continue
+
+            if videos or scripts:
+                projects.append({
+                    "id": folder,
+                    "type": project_type,
+                    "created_at": created_at,
+                    "videos": videos,
+                    "scripts": scripts
+                })
+
     projects.sort(key=lambda x: x["created_at"], reverse=True)
     return projects
+
+@router.get("/stats")
+def get_dashboard_stats():
+    """Returns real telemetry for the Command Center dashboard."""
+    projects = get_generation_history()
+    jobs = list_jobs(limit=100)
+    cfg = load_config()
+
+    total_videos = sum(len(p.get("videos", [])) for p in projects)
+    completed_jobs = [j for j in jobs if j.get("status") == "completed"]
+    active_jobs = [j for j in jobs if j.get("status") in ("running", "processing", "queued")]
+
+    # Calculate approximate render hours based on completed jobs & videos
+    render_hours = round((total_videos * 3.5 + len(completed_jobs) * 2.0) / 60.0, 1)
+
+    configured_keys = sum(
+        1 for k in ("GEMINI_API_KEY", "WAVESPEED_API_KEY", "PIXABAY_API_KEY", "NEWS_API_KEY")
+        if cfg.get(k)
+    )
+
+    recent_items = []
+    for p in projects[:6]:
+        vids = p.get("videos", [])
+        first_vid = vids[0]["path"] if vids else None
+        recent_items.append({
+            "id": p["id"],
+            "title": p["id"].replace("clipper_", "").replace("explainer_", "").replace("director_", "").replace("_", " ").title(),
+            "type": p["type"],
+            "created_at": p["created_at"],
+            "video_count": len(vids),
+            "video_path": first_vid
+        })
+
+    return {
+        "total_generated": total_videos or len(completed_jobs),
+        "total_projects": len(projects),
+        "render_hours": render_hours,
+        "active_jobs": len(active_jobs),
+        "completed_jobs": len(completed_jobs),
+        "configured_providers": configured_keys,
+        "recent_projects": recent_items,
+        "recent_jobs": jobs[:6]
+    }
 
 @router.delete("/history/{project_id}")
 def delete_project(project_id: str):
     import shutil
-    # Prevent directory traversal attacks
     clean_id = os.path.basename(project_id.strip())
     if clean_id != project_id or ".." in project_id or "/" in project_id or "\\" in project_id:
         raise HTTPException(status_code=400, detail="Invalid project ID format.")
@@ -250,8 +307,12 @@ def delete_project(project_id: str):
 
 @router.get("/media")
 def serve_media_file(path: str = Query(...)):
-    # Validate containment within permitted media directories
-    clean_path = os.path.abspath(path.strip())
+    raw_path = path.strip()
+    # Prevent any traversal attempts upfront
+    if ".." in raw_path:
+        raise HTTPException(status_code=403, detail="Access denied: Path traversal is not permitted.")
+
+    clean_path = os.path.abspath(raw_path)
     allowed_roots = [
         os.path.abspath("workspace"),
         os.path.abspath("outputs"),
@@ -259,12 +320,21 @@ def serve_media_file(path: str = Query(...)):
         os.path.abspath("assets"),
         os.path.abspath("videofx_outputs")
     ]
-    is_safe = any(
-        clean_path.startswith(root) and (len(clean_path) == len(root) or clean_path[len(root)] in (os.sep, '/'))
-        for root in allowed_roots
-    )
-    if not is_safe:
-        raise HTTPException(status_code=403, detail="Access denied: File outside permitted media workspace.")
+
+    def _is_within_allowed(candidate: str) -> bool:
+        return any(
+            candidate.startswith(root) and (len(candidate) == len(root) or candidate[len(root)] in (os.sep, '/'))
+            for root in allowed_roots
+        )
+
+    # Support workspace-relative paths (e.g. tools_output/file.mp4 -> workspace/tools_output/file.mp4)
+    if not _is_within_allowed(clean_path):
+        ws_candidate = os.path.abspath(os.path.join("workspace", raw_path.lstrip("/\\")))
+        if _is_within_allowed(ws_candidate) and os.path.isfile(ws_candidate):
+            clean_path = ws_candidate
+        else:
+            raise HTTPException(status_code=403, detail="Access denied: File outside permitted media workspace.")
+
     if not os.path.exists(clean_path) or not os.path.isfile(clean_path):
         raise HTTPException(status_code=404, detail="Media file not found.")
     return FileResponse(clean_path)

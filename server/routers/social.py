@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 from server.core.database import get_db, OAuthToken
+from server.routers.publish import validate_media_path
 from config import load_config
 
 router = APIRouter()
@@ -18,11 +19,18 @@ def get_social_status(db: Session = Depends(get_db)):
     status_map = {}
     for t in tokens:
         has_token = bool(t.access_token)
-        is_expired = t.expires_at and t.expires_at < datetime.utcnow()
+        is_expired = bool(t.expires_at and t.expires_at < datetime.utcnow())
         status_map[t.platform] = {
             "connected": has_token and not is_expired,
             "expired": is_expired,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None
+        }
+
+    if "youtube" not in status_map and os.path.exists("token.json"):
+        status_map["youtube"] = {
+            "connected": True,
+            "expired": False,
+            "updated_at": datetime.utcfromtimestamp(os.path.getmtime("token.json")).isoformat()
         }
     
     return {
@@ -40,6 +48,7 @@ def youtube_auth_url():
     
     client_id = config.get("YOUTUBE_CLIENT_ID")
     client_secret = config.get("YOUTUBE_CLIENT_SECRET")
+    redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", "http://localhost:8008/api/social/youtube/callback")
     
     if os.path.exists(client_secrets_path):
         try:
@@ -50,7 +59,7 @@ def youtube_auth_url():
                     "https://www.googleapis.com/auth/youtube.upload",
                     "https://www.googleapis.com/auth/youtube.readonly"
                 ],
-                redirect_uri="http://localhost:8008/api/social/youtube/callback"
+                redirect_uri=redirect_uri
             )
             auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
             return {"auth_url": auth_url, "configured": True}
@@ -58,7 +67,6 @@ def youtube_auth_url():
             logging.error(f"Failed to create Google OAuth flow from client_secrets.json: {e}")
             
     if client_id:
-        redirect_uri = "http://localhost:8008/api/social/youtube/callback"
         scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
         auth_url = (
             f"https://accounts.google.com/o/oauth2/v2/auth?"
@@ -70,7 +78,7 @@ def youtube_auth_url():
     return {
         "auth_url": None,
         "configured": False,
-        "message": "YouTube API credentials not configured. Please supply client_secrets.json or set YOUTUBE_CLIENT_ID."
+        "message": "YouTube API credentials not configured. Please supply client_secrets.json or set YOUTUBE_CLIENT_ID in Settings."
     }
 
 @router.post("/youtube/callback")
@@ -80,8 +88,8 @@ def youtube_callback(request_data: dict, db: Session = Depends(get_db)):
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code.")
 
-    config = load_config()
     client_secrets_path = "client_secrets.json"
+    redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", "http://localhost:8008/api/social/youtube/callback")
     
     try:
         from google_auth_oauthlib.flow import Flow
@@ -92,7 +100,7 @@ def youtube_callback(request_data: dict, db: Session = Depends(get_db)):
                     "https://www.googleapis.com/auth/youtube.upload",
                     "https://www.googleapis.com/auth/youtube.readonly"
                 ],
-                redirect_uri="http://localhost:8008/api/social/youtube/callback"
+                redirect_uri=redirect_uri
             )
             flow.fetch_token(code=code)
             credentials = flow.credentials
@@ -108,13 +116,14 @@ def youtube_callback(request_data: dict, db: Session = Depends(get_db)):
             token_entry.updated_at = datetime.utcnow()
             db.commit()
             
-            # Also save token.json for googleapiclient
             with open("token.json", "w", encoding="utf-8") as f:
                 f.write(credentials.to_json())
                 
             return {"message": "YouTube connected successfully."}
         else:
             raise HTTPException(status_code=400, detail="client_secrets.json required to complete token exchange.")
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         logging.error(f"OAuth exchange error: {e}")
@@ -123,9 +132,8 @@ def youtube_callback(request_data: dict, db: Session = Depends(get_db)):
 @router.post("/publish/youtube")
 def publish_to_youtube(video_data: dict, db: Session = Depends(get_db)):
     """Performs verified YouTube video upload using real credentials."""
-    video_path = video_data.get("video_path")
-    if not video_path or not os.path.exists(video_path):
-        raise HTTPException(status_code=400, detail="Video file does not exist on disk.")
+    raw_video_path = video_data.get("video_path", "")
+    safe_video_path = validate_media_path(raw_video_path)
 
     token = db.query(OAuthToken).filter(OAuthToken.platform == "youtube").first()
     if not token or not token.access_token:
@@ -162,7 +170,7 @@ def publish_to_youtube(video_data: dict, db: Session = Depends(get_db)):
             }
         }
         
-        media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+        media = MediaFileUpload(safe_video_path, chunksize=-1, resumable=True)
         request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
         
         response = None
@@ -188,11 +196,10 @@ def export_manual_bundle(bundle_request: dict):
     Creates an export bundle with optimized video, thumbnail, and metadata
     for manual publishing to platforms without direct API permissions.
     """
-    video_path = bundle_request.get("video_path")
-    if not video_path or not os.path.exists(video_path):
-        raise HTTPException(status_code=400, detail="Invalid video path.")
+    raw_video_path = bundle_request.get("video_path", "")
+    safe_video_path = validate_media_path(raw_video_path)
         
-    project_dir = os.path.dirname(os.path.abspath(video_path))
+    project_dir = os.path.dirname(safe_video_path)
     metadata_path = os.path.join(project_dir, "publish_metadata.txt")
     
     with open(metadata_path, "w", encoding="utf-8") as f:
@@ -203,6 +210,6 @@ def export_manual_bundle(bundle_request: dict):
         
     return {
         "message": "Manual publishing bundle created.",
-        "video_path": video_path,
-        "metadata_path": metadata_path
+        "video_path": safe_video_path.replace("\\", "/"),
+        "metadata_path": metadata_path.replace("\\", "/")
     }

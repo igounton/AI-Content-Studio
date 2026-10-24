@@ -1,5 +1,7 @@
 "use client";
 
+import { API_BASE_URL, WS_BASE_URL } from "@/lib/api";
+
 import { useState, useEffect, useRef } from "react";
 import { Film, Upload, Loader2, Play, Download, Wand2, Settings2, Clapperboard } from "lucide-react";
 
@@ -34,7 +36,7 @@ export default function ExplainerModePage() {
   useEffect(() => {
     if (!jobId) return;
 
-    const ws = new WebSocket(`ws://localhost:8008/api/generate/ws/${jobId}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/api/generate/ws/${jobId}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -92,7 +94,7 @@ export default function ExplainerModePage() {
     setLogs([{ message: "Starting Movie Explainer...", time: new Date().toLocaleTimeString() }]);
     
     try {
-      const res = await fetch("http://localhost:8008/api/explainer/process", {
+      const res = await fetch(`${API_BASE_URL}/api/explainer/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -280,14 +282,14 @@ export default function ExplainerModePage() {
                 <div className="w-full max-w-2xl mx-auto flex flex-col gap-6">
                   <div className="aspect-video bg-black rounded-xl border border-white/10 overflow-hidden relative shadow-2xl">
                     <video 
-                      src={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(finalVideo.replace(/\\/g, '/'))}`} 
+                      src={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(finalVideo.replace(/\\/g, '/'))}`} 
                       controls 
                       className="w-full h-full object-cover"
                     />
                   </div>
                   
                   <div className="flex items-center gap-3">
-                    <a href={`http://localhost:8008/api/generate/media?path=${encodeURIComponent(finalVideo.replace(/\\/g, '/'))}`} download className="flex-1 py-4 bg-[#fca311] hover:bg-[#ffb703] text-black rounded-xl flex items-center justify-center gap-2 text-sm font-bold transition-all shadow-[0_0_15px_rgba(252,163,17,0.2)]">
+                    <a href={`${API_BASE_URL}/api/generate/media?path=${encodeURIComponent(finalVideo.replace(/\\/g, '/'))}`} download className="flex-1 py-4 bg-[#fca311] hover:bg-[#ffb703] text-black rounded-xl flex items-center justify-center gap-2 text-sm font-bold transition-all shadow-[0_0_15px_rgba(252,163,17,0.2)]">
                       <Download className="h-5 w-5" /> Download Final Master
                     </a>
                   </div>
